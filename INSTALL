@@ -1,0 +1,262 @@
+[ Prerequisities ]
+
+A-Team MySQL LDAP Auth is an authentication plugin module for MySQL
+5.5.7 and up. Compiling against previous MySQL source code will fail.
+
+This plugin requires the OpenLDAP library .so shared object.
+
+This install guide is assuming you are using FreeBSD. It should also 
+work for Linux too with some minor modifications.
+
+[ Configuration ]
+
+The plugin does support dynamic configuration through a configuration
+file. Sample config file can be like following:
+
+ldap:
+{
+        uri             = "ldaps://sample_ldap_server";
+        user_base       = "dc=sample_company,dc=com";
+        cacert_file     = "/etc/ssl/ldap/ca.crt";
+        bind_dn         = "uid=sample_user,dc=System,dc=sample_company,dc=com";
+        bind_pw         = "sample_password";
+        login_attribute = "uid";
+        search_filter   = "(objectClass=inetOrgPerson)";
+        libldap         = "/usr/local/lib/libldap.so";
+        log_level       = "normal";     # can be "normal" or "debug"
+}
+
+All config variables are required to set.
+The config file name should be /usr/local/etc/ateam_mysql_ldap_auth.conf
+
+= uri =
+
+A URI is passed verbatim to the ldap_initialize function. The URI has
+the form: schema://hostname:port. If other fields are present, the
+behavior is undefined. 
+
+Schema:
+Apart from ldap, other (non-standard) recognized values of the schema
+field are ldaps (LDAP over TLS), ldapi (LDAP over IPC), and cldap
+(connectionless LDAP).
+
+Hostname:
+The hostname on which the LDAP server is running. The host parameter may
+contain a blank-separated list of hosts to try to connect to, and each
+host may optionally be of the form host:port.
+
+Port:
+The port number to which to connect. The port parameter is optional. If
+it is not present the default LDAP port (389) will be used. However,
+since the default LDAP port can be changed when compiling openLDAP, it
+is highly recommended that you always specify the port number.
+
+For more information regarding the URI please check the ldap_initialize
+function man page:
+http://linux.die.net/man/3/ldap_initialize
+
+= user_base =
+
+User searches are started in this DN.
+
+= cacert_file =
+
+The CA certficate file that can be used via ldaps connection.
+
+= bind_dn =
+
+Low privileged user DN to login first and search through LDAP directories.
+
+= bind_pw =
+
+Low privileged user password.
+
+= login_attribute =
+
+The login attribute/prefix used for user accounts, typically "uid" or "cn" for
+OpenLDAP and "sAMAccountName" for Active Directory.
+
+= search_filter =
+
+LDAP search filter. It can be like "(objectClass=inetOrgPerson)".
+
+If your directory schema supports group of name membership mapping to accounts
+(in OpenLDAP this is achieved via the memberof schema) you can filter by group
+as well, for example:
+
+"(&(memberOf=cn=MySQL Users,dc=Groups,dc=sample_company,dc=com)(objectClass=inetOrgPerson))";
+
+= libldap =
+
+The location of the OpenLDAP dynamic library (.so). Failing to provide
+the plugin with a correct path will led to errors during loading and a
+non functional plugin. Please, provide a full path to the library.
+
+[ Client Setup ]
+
+Just like MySQL Enterprise's PAM module, this plugin uses the clear_text
+password client module.  This is because the LDAP server itself must
+perform the password hashing and comparison.  This is in contrast to the
+default mechanism where the client sends only the hash to the MySQL server,
+where it is compared.  This has limited security value but it does prevent
+someone from learning the actual password if no SSL is used.  With the
+clear_text plugin this is not the case.  Hence the following warning:
+
+!!! IMPORTANT:
+!!! ------------------------------------------------------------------------
+!!! ENSURE THE COMMUNICATIONS PATH BETWEEN THE CLIENT AND SERVER IS SECURE!
+!!! ------------------------------------------------------------------------
+!!! By default MySQL does not use SSL so additional steps and network design
+!!! are needed to ensure you're not exposing your credentials.
+
+= MySQL Command Line Tools =
+
+For command line clients this is done by setting the following environment
+variable:
+
+  export LIBMYSQL_ENABLE_CLEARTEXT_PLUGIN=1
+  
+Failure to do this will result in an error such as this:
+
+ERROR 2059 (HY000): Authentication plugin 'mysql_clear_password' cannot be loaded: plugin not enabled
+
+= MySQL Workbench =
+
+In MySQL Workbench this is acheived by going to go to the "Advanced" tab and
+checking "Enable Cleartext Authentication Plugin" when editing a connction.
+
+[ Compiling ]
+
+After configuring config file you can compile it by typing `gmake' in the
+parent directory of the source. The build system will start with some
+basic tests about OpenLDAP availability, API and will continue compiling
+the module. This will create the auth_ldap.so plugin. All logs will be
+written to syslog when it it running.
+
+[ Installing ]
+
+Type `gmake install' as a superuser to install the plugin. After, you
+installed your plugin you can add a configuration directive your my.cnf
+in order to instruct you server to load the plugin during initialization.
+Edit your my.cnf and add the following line:
+
+plugin-load=auth_ldap.so
+
+under the [mysqld] section. You now must restart your MySQL server for
+the plugin to load in this case.
+You can also install it via mysql console:
+
+mysql> INSTALL PLUGIN auth_ldap SONAME 'auth_ldap.so';
+
+If you enabled DEBUG in source and compiled and installed, you should see something like
+following lines, indicating that the plugin has loaded successfully:
+...
+Apr 12 03:26:03 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap.uri = ldaps://ldap.sample.net
+Apr 12 03:26:03 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap.cacert_file = /etc/ssl/ldap/ca.crt
+Apr 12 03:26:03 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap.bind_dn = uid=sample_user,dc=System,dc=sample_company,dc=com
+Apr 12 03:26:03 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap.search_filter = (objectClass=inetOrgPerson)
+Apr 12 03:26:03 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap.dn = dc=sample_company,dc=com
+Apr 12 03:26:03 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap.libldap = /usr/local/lib/libldap.so
+Apr 12 03:26:36 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap_auth_server: server plugin invoked
+Apr 12 03:26:36 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap_auth_server: connecting to LDAP server
+Apr 12 03:26:36 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap_auth_server: setting LDAP protocol version to 3
+Apr 12 03:26:36 testdb1.sample.net mysql-auth_ldap[46121]: info: ldap_auth_server: setting LDAP_OPT_X_TLS_CACERTFILE
+...
+
+Otherwise you should see something similar to following:
+...
+Apr 12 07:08:08 testdb1.sample.net mysql-auth_ldap[5252]: info: init: loading module auth_ldap
+Apr 12 07:08:08 testdb1.sample.net mysql-auth_ldap[5252]: info: ldap.libldap = /usr/local/lib/libldap.so
+Apr 12 07:08:46 testdb1.sample.net mysql-auth_ldap[5252]: info: ldap_auth_server: binding to LDAP server
+Apr 12 07:08:46 testdb1.sample.net mysql-auth_ldap[5252]: info: LDAP search successful.
+Apr 12 07:08:46 testdb1.sample.net mysql-auth_ldap[5252]: info: >>>>>>>> Authentication to LDAP is successful.
+Apr 12 07:08:59 testdb1.sample.net mysql-auth_ldap[5252]: info: ldap_auth_server: binding to LDAP server
+Apr 12 07:08:59 testdb1.sample.net mysql-auth_ldap[5252]: info: LDAP search successful.
+Apr 12 07:08:59 testdb1.sample.net mysql-auth_ldap[5252]: error: ldap_auth_server: ldap_sasl_bind_s for user returned: Invalid credentials
+...
+
+[ Troubleshooting ]
+
+= Compilation errors =
+
+/bin/sh: mysql_config: not found
+
+If you are getting this error message, followed by a lot of compiler
+errors this means that the build system is unable to locate the
+mysql_config program. Under normal conditions this should be installed
+in the system paths. First of all make sure you have MySQL installed in
+your system. Then check if you can access mysql_config your self from
+the console. If you can access it, then there is a problem with the
+system paths during compilation. Please, find out the full path to your
+config program by typing which mysql_config and the use the following
+command for compiling the plugin:
+
+gmake MYSQL_CONFIG=/usr/local/bin/mysql_config
+
+If you cannot access mysql_config from console then you will have to
+locate it manually and give its path to the make program, by using the
+forementioned command. Please, note that if some Linux distributions
+have separate packages for runtime libraries and development files. Just
+because you have installed MySQL to your system doesn't mean you have
+the necessary development files installed. In Debian and Ubuntu you
+should install libmysqlclient-dev package.
+
+error: mysql/plugin_auth.h: No such file or directory
+
+If you do not see a mysql_config: not found error and you are getting
+this error, this probably means that you are trying to compile the
+plugin against an old verion of MySQL. The plugin requires at least
+version 5.5.7 to compile. You can check your MySQL version by typing 
+
+mysql_config --version
+
+in the console.
+
+error: ldap.h: No such file or directory
+
+You do not have OpenLDAP library installed, or it is not installed in
+system standard paths. If you need to specify the path the library
+header files are installed set the CFLAGS value when invoking make.
+e.g.:
+
+make CFLAGS=-I/usr/local/include
+
+
+[ Creating SQL users ]
+
+After you have successfully installed and loaded the module, you must
+create your database users. Unfortunately, there is not way to
+automatically load username from the LDAP directory. Furthermore, the
+plugin is called only when a user specified to authenticate with the
+module tries to log in. All other users are left unaffected.
+
+In order to create a user named bob, authenticated against the LDAP
+directory, log in to your SQL server with an account having
+administrative privileges and execute the following SQL command:
+
+CREATE USER 'bob'@'localhost' IDENTIFIED WITH auth_ldap;
+
+From now on, whenever user `bob' tries to login from localhost the
+auth_ldap module is going to be invoked to handle authentication. You
+can write a custom script to synchronize your LDAP users and MySQL users
+and execute it via cron. Although this is sub-optimal, it is still
+viable since you do not need to provide MySQL with a password for the
+user. Therefore, your users can reuse their passwords. For more
+information about MySQL plugable authentication please read MySQL
+reference manual:
+
+http://dev.mysql.com/doc/refman/5.5/en/pluggable-authentication.html
+
+[ Make auth_ldap the default ]
+
+Creating users using the IDENTIFIED WITH clause is mandatory for the
+time being. MySQL doesn't support any means to configure the default
+authentication plugin for the server. Scraping source code files we
+found in file sql/sql_acl.cc line 180:
+
+/// @todo make it configurable
+LEX_STRING *default_auth_plugin_name= &native_password_plugin_name;
+
+So you can see that the plugin name is hard coded in the source code.
+Changing this to "auth_ldap" and recompiling might do the trick, but it
+hasn't been tested.
